@@ -1,42 +1,57 @@
 from nameko.rpc import rpc
-from nameko.exceptions import NamekoException
+from nameko.exceptions import RemoteError
+from nameko.events import EventDispatcher, event_handler
 from abc import ABC
 from typing import Any
 from .dependency import Runnables, RunnablesProvider
+from langchain_core.messages import AIMessage, BaseMessage
 
 
 class LangRPC(ABC):
+    name = "abstract"
+
     runnables: Runnables = RunnablesProvider()
+    dispatch = EventDispatcher()
 
     def runnable(self, runnable_id: Any):
         runnable = self.runnables.get(runnable_id)
         if runnable:
             return runnable
-        raise NamekoException("Runnable not found.")
+        raise RemoteError("Runnable not found.")
 
-    def run_chain(self, _id: Any, input_data: dict):
-        return self.runnable(_id).invoke(input_data)
-
-    def invoke(self, _id: Any, input_data: str) -> str:
+    @rpc
+    def invoke(self, _id: Any, input_data: str) -> dict:
         runnable = self.runnable(_id)
-        return runnable.invoke(input_data)
+        ai_message: AIMessage = runnable.invoke(input_data)
+        return ai_message.to_json()
 
-    def batch(self, _id: Any, input_data: list[dict]):
+    @rpc
+    def batch(self, _id: Any, input_data: list[dict]) -> list[dict]:
         runnable = self.runnable(_id)
-        return runnable.batch(input_data)
+        ai_messages: list[AIMessage] = runnable.batch(input_data)
+        return [ai_message.to_json() for ai_message in ai_messages]
 
-    def stream(self, _id: Any, input_data: str) -> str:
+    def stream(self, _id: Any, input_data: str) -> dict:
+        pass
+
+    #####
+    @rpc
+    def start_stream(self, _id: Any, input_data: str) -> dict:
         runnable = self.runnable(_id)
-        return runnable.stream(input_data)
+        return runnable.start_stream(input_data)
 
+    #####
+    @rpc
     def stream_log(self, _id: Any, input_data: str) -> str:
         runnable = self.runnable(_id)
         return runnable.stream_log(input_data)
 
+    @rpc
     def astream_events(self, _id: Any, input_data: str) -> str:
         runnable = self.runnable(_id)
         return runnable.astream_events(input_data)
 
+    @rpc
     def get_schema(self, _id: Any) -> str:
         runnable = self.runnable(_id)
         return runnable.get_schema()

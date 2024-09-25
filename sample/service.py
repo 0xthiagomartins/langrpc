@@ -10,22 +10,10 @@ def register_runnables():
     return runnables
 
 
-def apply_runnable_interface(cls):
-    for name in [
-        "invoke",  # invoke the runnable on a single input
-        "batch",  # invoke the runnable on a batch of inputs
-        "stream",  # stream the runnable on a single input
-        "stream_log",  # stream the runnable on a single input
-        "astream_events",  # stream the runnable on a single input
-    ]:
-        setattr(cls, name, rpc(name))
-    return cls
-
-
-@apply_runnable_interface
-class Runnables(LangRPC):
+class RunnablesRPC(LangRPC):
     name = "runnables"
+    runnables = register_runnables()
 
-    def __init__(self):
-        super().__init__()
-        self.runnables = register_runnables()
+    @rpc
+    def test(self):
+        return True

@@ -1,0 +1,2 @@
+AMQP_URI: ${RABBIT_PROTOCOL:pyamqp}://${RABBIT_USER:guest}:${RABBIT_PASSWORD:guest}@${RABBIT_HOST:localhost}:${RABBIT_PORT:5672}
+SERVICE_NAME: "runnables"

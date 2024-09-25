@@ -11,17 +11,17 @@ class Singleton(type):
         return cls._instances[cls]
 
 
-class Router(metaclass=Singleton):
+class Runnables(metaclass=Singleton):
     """
 
-    RPC Router for a chain or runnable
+    This is a router for a chain or runnable
 
     # Register chain
-    >>> router = ChainRouter()
-    >>> router.add(chain)
+    >>> runnables = Runnables()
+    >>> runnables.add(chain)
 
     # Retrieve chain
-    >>> router.get(chain)
+    >>> runnables.get(chain)
     """
 
     __runnables: dict[str, Any] = {}
@@ -70,6 +70,3 @@ class Router(metaclass=Singleton):
     @classmethod
     def get_schema(cls, runnable_id: str):
         return cls.__schemas.get(runnable_id)
-
-
-router = Router()

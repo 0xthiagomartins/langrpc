@@ -6,6 +6,7 @@ to be considered private and subject to change without notice.
 """
 
 from .rpc import LangRPC, Runnables
+from .client import RemoteRunnable
 
 
-__all__ = ["LangRPC", "Runnables"]
+__all__ = ["LangRPC", "Runnables", "RemoteRunnable"]

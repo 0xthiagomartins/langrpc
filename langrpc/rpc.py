@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 import uuid
 import threading
 from time import sleep
+import eventlet
 
 
 class LangRPC(ABC):
@@ -39,27 +40,51 @@ class LangRPC(ABC):
 
     #####
     @rpc
-    def start_stream(self, _id, *args, **kwargs):
-        stream_id = str(uuid.uuid4())
-        runnable = self.runnable(_id)
-        self.active_streams[stream_id] = runnable.stream(*args, **kwargs)
-        threading.Thread(
-            target=self._stream_data, args=(stream_id,), daemon=True
-        ).start()
+    def stream(self, _id, stream_id, input_data):
+        """
+        Initiates a streaming process with the provided stream_id.
+        """
+        # Register the active stream
+        self.active_streams[stream_id] = (_id, input_data)
+        # Start streaming data
+        try:
+            print(f"Starting stream with ID {stream_id}", flush=True)
+            self._stream_data(stream_id)
+        except Exception as e:
+            self.dispatch(
+                "stream_error",
+                {"stream_id": stream_id, "error": str(e)},
+            )
+        finally:
+            del self.active_streams[stream_id]
+            print(
+                f"Stream with ID {stream_id} has been removed from active streams due to error: {e}",
+                flush=True,
+            )
+        print(f"Stream complete for ID {stream_id}", flush=True)
         return stream_id
 
     def _stream_data(self, stream_id):
-        stream = self.active_streams.get(stream_id)
-        if not stream:
-            return
-        for chunk in stream:
+        """
+        Handles the streaming logic, dispatching events as data chunks are processed.
+        """
+        _id, input_data = self.active_streams.get(stream_id)
+        runnable = self.runnable(_id)
+        for chunk in runnable.stream(input_data):
             ai_message_chunk: AIMessageChunk = chunk
+            print(
+                f"Dispatching chunk for stream ID {stream_id}, chunk: {ai_message_chunk.to_json()}",
+                flush=True,
+            )
             self.dispatch(
                 "stream_data",
                 {"stream_id": stream_id, "chunk": ai_message_chunk.to_json()},
             )
-        self.dispatch("stream_complete", {"stream_id": stream_id, "status": "done"})
-        del self.active_streams[stream_id]
+        print(f"Stream complete for ID {stream_id}", flush=True)
+        self.dispatch(
+            "stream_complete",
+            {"stream_id": stream_id, "status": "done"},
+        )
 
     #####
     @rpc

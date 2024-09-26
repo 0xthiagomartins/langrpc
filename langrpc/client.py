@@ -1,15 +1,10 @@
-from nameko.standalone.rpc import ClusterRpcClient
-from nameko.rpc import Client
-from langchain_core.messages import AIMessage
-import os
-from nameko.events import event_handler
-from langchain_core.messages import AIMessage, AIMessageChunk
-import queue
-from nameko.runners import ServiceRunner
-import threading
 import uuid
-import sys
-import time
+import queue
+import threading
+from nameko.rpc import Client
+from nameko.events import event_handler
+from nameko.runners import ServiceRunner
+from langchain_core.messages import AIMessage, AIMessageChunk
 
 
 class RemoteRunnable:
@@ -36,30 +31,30 @@ class RemoteRunnable:
     class EventHandler:
         name = "remote_client_stream_event_handler"
 
-        def __init__(self, rpc):
-            self.rpc = rpc
+        def __init__(self, client):
+            self.client = client
 
-        @event_handler("lang_rpc_service", "stream_data")
+        @event_handler("runnables", "stream_data")
         def handle_stream_data(self, payload):
-            if payload["stream_id"] != self.rpc.stream_id:
+            if payload["stream_id"] != self.client.stream_id:
                 return  # Ignore unrelated streams
             chunk_data = payload["chunk"]
             ai_message_chunk = AIMessageChunk(**chunk_data.get("kwargs", {}))
-            self.rpc.data_queue.put(ai_message_chunk)
+            self.client.data_queue.put(ai_message_chunk)
 
-        @event_handler("lang_rpc_service", "stream_complete")
+        @event_handler("runnables", "stream_complete")
         def handle_stream_complete(self, payload):
-            if payload["stream_id"] != self.rpc.stream_id:
+            if payload["stream_id"] != self.client.stream_id:
                 return  # Ignore unrelated streams
-            self.rpc.completed.set()
+            self.client.completed.set()
 
-        @event_handler("lang_rpc_service", "stream_error")
+        @event_handler("runnables", "stream_error")
         def handle_stream_error(self, payload):
-            if payload["stream_id"] != self.rpc.stream_id:
+            if payload["stream_id"] != self.client.stream_id:
                 return  # Ignore unrelated streams
             error = payload.get("error", "Unknown error")
-            self.rpc.error_queue.put(error)
-            self.rpc.completed.set()
+            self.client.error_queue.put(error)
+            self.client.completed.set()
 
     def run_event_handler(self):
         try:
@@ -72,32 +67,41 @@ class RemoteRunnable:
     def stream(self, input_data):
         """
         Generator that yields AIMessageChunk instances as they are received.
+        Uses call_async to initiate the stream and listens to events.
         """
-        self.stream_id = self.rpc.start_stream(self.runnable_id, input_data)
+        # Generate a unique stream_id
+        stream_id = str(uuid.uuid4())
+        self.stream_id = stream_id
+
+        # Initiate the stream asynchronously with the given stream_id
+        # Pass stream_id as a separate parameter
+        future = self.rpc.stream.call_async(self.runnable_id, stream_id, input_data)
+        # Optionally, wait for confirmation if the service returns the stream_id
+        # stream_id_confirmed = future.result()
+        # assert stream_id_confirmed == stream_id
+
         print(f"Started stream with ID: {self.stream_id}")
         try:
             while not self.completed.is_set() or not self.data_queue.empty():
                 try:
                     chunk = self.data_queue.get(timeout=1)
+                    print("Chunk received from data_queue", flush=True)
                     yield chunk
                 except queue.Empty:
+                    print("empty", flush=True, end=" ")
                     if self.completed.is_set():
                         break
             # After completion, check for errors
             if not self.error_queue.empty():
                 error = self.error_queue.get()
+                print(f"Error found in error_queue: {error}", flush=True)
                 raise Exception(f"Stream encountered an error: {error}")
             else:
-                print("Stream completed successfully.")
+                print("Stream completed successfully.", flush=True)
         except Exception as e:
-            print(f"An error occurred during streaming: {e}")
+            print(f"An error occurred during streaming: {e}", flush=True)
+            raise e
         finally:
+            print("Stopping runner and joining event_thread", flush=True)
             self.runner.stop()
             self.event_thread.join()
-
-
-if __name__ == "__main__":
-    config = {"AMQP_URI": os.getenv("AMQP_URI", "amqp://guest:guest@localhost/")}
-
-    with ClusterRpcClient(config) as rpc:
-        Runnable = RemoteRunnable(rpc, "langrpc_service", "run_chain")

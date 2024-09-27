@@ -27,10 +27,11 @@ def test_batch(client):
         assert isinstance(response[1], AIMessage)
 
 
-def test_stream(rabbitmq_config):
+@pytest.mark.asyncio
+async def test_stream(rabbitmq_config):
     with ClusterRpcClient(rabbitmq_config) as rpc:
         runnable = RemoteRunnable(rpc.runnables, "chain_genai")
-        for chunk in runnable.stream("Hello World"):
-            print("Chunk gettered", flush=True)
-            ai_message_chunk: AIMessage = chunk
+        async for chunk in runnable.stream("Hello World"):
+            print("Chunk received", flush=True)
+            ai_message_chunk: AIMessageChunk = chunk
             print(f"Chunk: {ai_message_chunk.content}", flush=True)

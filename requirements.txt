@@ -6,3 +6,6 @@ langchain-google-genai
 pytest
 pytest-cov
 rich
+rstream
+asyncio
+pytest-asyncio

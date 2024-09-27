@@ -19,5 +19,6 @@ def rabbitmq_config() -> dict[str, str]:
 
 
 @pytest.fixture(scope="session")
-def client(rabbitmq_config):
-    return ClusterRpcClient(rabbitmq_config)
+async def client(rabbitmq_config):
+    async with ClusterRpcClient(rabbitmq_config) as rpc:
+        yield RemoteRunnable(rpc.runnables, "chain_genai")

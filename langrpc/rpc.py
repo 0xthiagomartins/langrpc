@@ -1,14 +1,13 @@
 from nameko.rpc import rpc
 from nameko.exceptions import RemoteError
-from nameko.events import EventDispatcher, event_handler
+from nameko.events import EventDispatcher
 from abc import ABC
-from typing import Any
 from .dependency import Runnables, RunnablesProvider
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from typing import AsyncGenerator
 import uuid
-import threading
-from time import sleep
-import eventlet
+import asyncio
+from rstream import Producer
 
 
 class LangRPC(ABC):
@@ -40,51 +39,29 @@ class LangRPC(ABC):
 
     #####
     @rpc
-    def stream(self, _id, stream_id, input_data):
-        """
-        Initiates a streaming process with the provided stream_id.
-        """
-        # Register the active stream
-        self.active_streams[stream_id] = (_id, input_data)
-        # Start streaming data
-        try:
-            print(f"Starting stream with ID {stream_id}", flush=True)
-            self._stream_data(stream_id)
-        except Exception as e:
-            self.dispatch(
-                "stream_error",
-                {"stream_id": stream_id, "error": str(e)},
-            )
-        finally:
-            del self.active_streams[stream_id]
-            print(
-                f"Stream with ID {stream_id} has been removed from active streams due to error: {e}",
-                flush=True,
-            )
-        print(f"Stream complete for ID {stream_id}", flush=True)
-        return stream_id
-
-    def _stream_data(self, stream_id):
-        """
-        Handles the streaming logic, dispatching events as data chunks are processed.
-        """
-        _id, input_data = self.active_streams.get(stream_id)
+    async def stream(self, _id, *args, **kwargs):
         runnable = self.runnable(_id)
-        for chunk in runnable.stream(input_data):
-            ai_message_chunk: AIMessageChunk = chunk
-            print(
-                f"Dispatching chunk for stream ID {stream_id}, chunk: {ai_message_chunk.to_json()}",
-                flush=True,
+        await self.astream(runnable, *args, **kwargs)
+
+    async def astream(self, runnable, *args, **kwargs):
+        async with Producer(
+            host="localhost",
+            username="guest",
+            password="guest",
+            port=5672,
+        ) as producer:
+            STREAM_NAME = "langchain_stream"
+            STREAM_RETENTION = 5000000000
+            await producer.create_stream(
+                STREAM_NAME,
+                exists_ok=True,
+                arguments={"MaxLengthBytes": STREAM_RETENTION},
             )
-            self.dispatch(
-                "stream_data",
-                {"stream_id": stream_id, "chunk": ai_message_chunk.to_json()},
-            )
-        print(f"Stream complete for ID {stream_id}", flush=True)
-        self.dispatch(
-            "stream_complete",
-            {"stream_id": stream_id, "status": "done"},
-        )
+            for chunk in runnable.stream(*args, **kwargs):
+                ai_message_chunk: AIMessageChunk = chunk
+                await producer.send(
+                    stream=STREAM_NAME, message=ai_message_chunk.to_json()
+                )
 
     #####
     @rpc
